@@ -1,0 +1,105 @@
+:root {
+  --bg-top: #0f172a;
+  --bg-mid: #14213d;
+  --bg-low: #1f2937;
+  --panel: rgba(2, 6, 23, 0.78);
+  --accent: #fbbf24;
+  --accent-2: #22d3ee;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1200px 800px at 10% 10%, rgba(34, 211, 238, 0.1), transparent 70%),
+    radial-gradient(900px 600px at 90% 30%, rgba(251, 191, 36, 0.12), transparent 70%),
+    linear-gradient(180deg, var(--bg-top), var(--bg-mid) 45%, var(--bg-low));
+  display: grid;
+  place-items: center;
+  padding: 1.2rem;
+}
+
+.game-shell {
+  width: min(100%, 1060px);
+}
+
+.title-wrap {
+  margin-bottom: 0.6rem;
+}
+
+.title-wrap h1 {
+  margin: 0;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: clamp(1.2rem, 2.8vw, 2.2rem);
+}
+
+.title-wrap p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.canvas-wrap {
+  position: relative;
+  border: 2px solid rgba(251, 191, 36, 0.5);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow:
+    0 20px 35px rgba(2, 6, 23, 0.55),
+    0 0 0 1px rgba(34, 211, 238, 0.25) inset;
+}
+
+#game {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #020617;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-size: clamp(1rem, 2.5vw, 1.8rem);
+  background: rgba(2, 6, 23, 0.72);
+  color: #fff;
+  padding: 1rem;
+}
+
+.hidden {
+  display: none;
+}
+
+.hud-panel {
+  margin-top: 0.65rem;
+  background: var(--panel);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.25rem 0.8rem;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 700px) {
+  body {
+    padding: 0.6rem;
+  }
+
+  .hud-panel {
+    grid-template-columns: 1fr 1fr;
+    font-size: 0.82rem;
+  }
+}

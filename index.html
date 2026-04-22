@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Neon Citadel Raycaster</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="title-wrap">
+        <h1>Neon Citadel 1990</h1>
+        <p>Retro raycast shooter with kinetic movement and smart enemies.</p>
+      </header>
+
+      <section class="canvas-wrap">
+        <canvas id="game" width="960" height="600"></canvas>
+        <div id="overlay" class="overlay hidden"></div>
+      </section>
+
+      <section class="hud-panel">
+        <div><strong>Move:</strong> WASD</div>
+        <div><strong>Look:</strong> Mouse or Arrow Keys</div>
+        <div><strong>Shoot:</strong> Left Click / F</div>
+        <div><strong>Sprint:</strong> Shift (uses stamina)</div>
+        <div><strong>Interact / Dash:</strong> E</div>
+      </section>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
