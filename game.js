@@ -155,10 +155,10 @@ const LEVELS = [
       "1111111111",
       "1200141001",
       "1000161001",
-      "10000A0001",
-      "1000AEA901",
-      "10006A9E91",
-      "1000700901",
+      "1000000001",
+      "1000000001",
+      "1000600001",
+      "1000700001",
       "1300800001",
       "1111111111",
     ],
@@ -190,12 +190,7 @@ const TILE = {
   DOOR: 6,
   MEDKIT: 7,
   KEY: 8,
-  LADDER: 9,
-  STAIRS_N_UP: 10,
-  STAIRS_E_UP: 11,
-  STAIRS_S_UP: 12,
-  STAIRS_W_UP: 13,
-  PLATFORM: 14,
+  PLATFORM: 9,
 };
 
 const TILE_CHAR_TO_ID = {
@@ -208,11 +203,6 @@ const TILE_CHAR_TO_ID = {
   "6": TILE.DOOR,
   "7": TILE.MEDKIT,
   "8": TILE.KEY,
-  "9": TILE.LADDER,
-  A: TILE.STAIRS_N_UP,
-  B: TILE.STAIRS_E_UP,
-  C: TILE.STAIRS_S_UP,
-  D: TILE.STAIRS_W_UP,
   E: TILE.PLATFORM,
 };
 
@@ -226,23 +216,6 @@ function parseTileChar(ch, levelIdx, x, y) {
 
 function tileCharIsValid(ch) {
   return TILE_CHAR_TO_ID[ch] !== undefined;
-}
-
-function isStairTile(tile) {
-  return (
-    tile === TILE.STAIRS_N_UP ||
-    tile === TILE.STAIRS_E_UP ||
-    tile === TILE.STAIRS_S_UP ||
-    tile === TILE.STAIRS_W_UP
-  );
-}
-
-function getStairHeight(tile, localX, localY) {
-  if (tile === TILE.STAIRS_N_UP) return 1 - localY;
-  if (tile === TILE.STAIRS_E_UP) return localX;
-  if (tile === TILE.STAIRS_S_UP) return localY;
-  if (tile === TILE.STAIRS_W_UP) return 1 - localX;
-  return null;
 }
 
 function clampZ(z) {
@@ -271,7 +244,7 @@ function normalizeHandcraftedMap(level, levelIdx) {
       const ch = row[x];
       if (!tileCharIsValid(ch)) {
         throw new Error(
-          `Level ${levelIdx + 1} contains invalid tile '${ch}' at (${x}, ${y}). Valid tiles: 0-9, A-E.`
+          `Level ${levelIdx + 1} contains invalid tile '${ch}' at (${x}, ${y}). Valid tiles: 0-8, E.`
         );
       }
       if (ch === "3") spawnCount += 1;
@@ -659,28 +632,17 @@ function updatePlayer(dt) {
   const localX = p.x - gx;
   const localY = p.y - gy;
 
-  const onLadder = tile === TILE.LADDER;
-  let climbInput = 0;
-  if (keys.KeyR) climbInput += 1;
-  if (keys.KeyQ) climbInput -= 1;
+  let targetZ = 0;
+  if (tile === TILE.PLATFORM) {
+    targetZ = 1;
+  }
 
-  if (onLadder && climbInput !== 0) {
-    p.vz = climbInput * 2.1;
-  } else {
-    let targetZ = 0;
-    if (tile === TILE.PLATFORM) {
-      targetZ = 1;
-    } else if (isStairTile(tile)) {
-      targetZ = getStairHeight(tile, localX, localY);
-    }
-
-    const dz = targetZ - p.z;
-    p.vz += dz * 12 * dt;
-    p.vz *= 0.84;
-    if (Math.abs(dz) < 0.01 && Math.abs(p.vz) < 0.02) {
-      p.z = targetZ;
-      p.vz = 0;
-    }
+  const dz = targetZ - p.z;
+  p.vz += dz * 12 * dt;
+  p.vz *= 0.84;
+  if (Math.abs(dz) < 0.01 && Math.abs(p.vz) < 0.02) {
+    p.z = targetZ;
+    p.vz = 0;
   }
 
   p.z = clampZ(p.z + p.vz * dt);
@@ -873,6 +835,15 @@ function makePatrolRoute(x, y) {
   return route;
 }
 
+function getTileHeightAt(x, y) {
+  const gx = Math.floor(x);
+  const gy = Math.floor(y);
+  const tile = state.map[gy]?.[gx];
+
+  if (tile === TILE.PLATFORM) return 1;
+  return 0;
+}
+
 function updateEnemies(dt) {
   const p = state.player;
 
@@ -938,6 +909,17 @@ function updateEnemies(dt) {
         const ny = e.y + my * dt;
         if (canMoveTo(nx, e.y, ENEMY_RADIUS)) e.x = nx;
         if (canMoveTo(e.x, ny, ENEMY_RADIUS)) e.y = ny;
+
+        // Positioning adjustment only: avoid abrupt height mismatches around platforms.
+        const enemyHeight = getTileHeightAt(e.x, e.y);
+        const playerHeight = getTileHeightAt(p.x, p.y);
+        if (Math.abs(enemyHeight - playerHeight) > 1.05 && dist < 1.1) {
+          const push = normalize(e.x - p.x, e.y - p.y);
+          const px = e.x + push.x * dt * 0.9;
+          const py = e.y + push.y * dt * 0.9;
+          if (canMoveTo(px, e.y, ENEMY_RADIUS)) e.x = px;
+          if (canMoveTo(e.x, py, ENEMY_RADIUS)) e.y = py;
+        }
 
         if (!e.alerted && e.patrolRoute.length > 1) {
           const moved = Math.hypot(e.x - prevX, e.y - prevY) > 0.002;
@@ -1214,6 +1196,62 @@ function render3D() {
   renderSprites(zBuffer);
 }
 
+// Project a world point to screen-space using the same camera math as walls.
+function projectPoint(wx, wy, worldZ) {
+  const p = state.player;
+  const dx = wx - p.x;
+  const dy = wy - p.y;
+  const cosA = Math.cos(-p.angle);
+  const sinA = Math.sin(-p.angle);
+  // Camera space: x = right, y = forward
+  const camX = dx * cosA - dy * sinA;
+  const camY = dx * sinA + dy * cosA;
+  if (camY <= 0.05) return null;
+  const horizon = H / 2 + p.bob * 100 + p.z * 110;
+  const projPlane = (W / 2) / Math.tan(HALF_FOV);
+  const screenX = W / 2 + (camX / camY) * projPlane;
+  // worldZ is height in tile units; one tile == wallHeight at this distance.
+  const wallHeight = (H / camY) * 0.95;
+  const screenY = horizon - (worldZ - 0.5) * wallHeight;
+  return { screenX, screenY, depth: camY, wallHeight };
+}
+
+// Draw a flat axis-aligned quad (in world space) as a filled trapezoid on screen.
+// Performs simple z-buffer culling using its average depth across covered columns.
+function drawWorldQuad(p1, p2, p3, p4, fillStyle, zBuffer) {
+  if (!p1 || !p2 || !p3 || !p4) return;
+  const minX = Math.min(p1.screenX, p2.screenX, p3.screenX, p4.screenX);
+  const maxX = Math.max(p1.screenX, p2.screenX, p3.screenX, p4.screenX);
+  if (maxX < 0 || minX > W) return;
+
+  // Depth check: sample a few columns; require at least one to be in front.
+  const avgDepth = (p1.depth + p2.depth + p3.depth + p4.depth) / 4;
+  const leftCol = Math.max(0, Math.floor(minX / RENDER_STRIP));
+  const rightCol = Math.min(RAY_COUNT - 1, Math.floor(maxX / RENDER_STRIP));
+  let anyVisible = false;
+  for (let c = leftCol; c <= rightCol; c += 1) {
+    if (avgDepth < zBuffer[c] + 0.02) { anyVisible = true; break; }
+  }
+  if (!anyVisible) return;
+
+  ctx.fillStyle = fillStyle;
+  ctx.beginPath();
+  ctx.moveTo(p1.screenX, p1.screenY);
+  ctx.lineTo(p2.screenX, p2.screenY);
+  ctx.lineTo(p3.screenX, p3.screenY);
+  ctx.lineTo(p4.screenX, p4.screenY);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function shadeColor(hex, factor) {
+  const h = hex.replace("#", "");
+  const r = Math.max(0, Math.min(255, Math.floor(parseInt(h.substr(0, 2), 16) * factor)));
+  const g = Math.max(0, Math.min(255, Math.floor(parseInt(h.substr(2, 2), 16) * factor)));
+  const b = Math.max(0, Math.min(255, Math.floor(parseInt(h.substr(4, 2), 16) * factor)));
+  return `rgb(${r},${g},${b})`;
+}
+
 function renderSprites(zBuffer) {
   const p = state.player;
   const cameraZOffset = p.z * 110;
@@ -1423,9 +1461,7 @@ function renderMinimap(targetCtx = ctx) {
       if (t === 1) targetCtx.fillStyle = "#475569";
       else if (t === 2) targetCtx.fillStyle = "#22c55e";
       else if (t === 8) targetCtx.fillStyle = "#fde047";
-      else if (t === TILE.LADDER) targetCtx.fillStyle = "#38bdf8";
       else if (t === TILE.PLATFORM) targetCtx.fillStyle = "#818cf8";
-      else if (isStairTile(t)) targetCtx.fillStyle = "#c084fc";
       else if (t === 6) {
         const door = getDoorAt(x, y);
         targetCtx.fillStyle = door && door.open > 0.85 ? "#b45309" : "#facc15";
