@@ -28,6 +28,8 @@ const EXTRA_ENEMIES_PER_LEVEL = 12;
 const MEDKITS_PER_LEVEL = 10;
 const MAZE_COLS = 16;
 const MAZE_ROWS = 16;
+const MAX_PLAYER_Z = 2.5;
+const MIN_PLAYER_Z = -1;
 
 const COLORS = {
   wallA: "#9ca3af",
@@ -147,10 +149,145 @@ function getTexturePixel(texture, tx, ty) {
 }
 
 const LEVELS = [
-  { name: "Sector A - Foundry" },
-  { name: "Sector B - Arc Tunnels" },
-  { name: "Sector C - Iron Vault" },
+  {
+    name: "testing grounds",
+    map: [
+      "1111111111",
+      "1200141001",
+      "1000161001",
+      "10000A0001",
+      "1000AEA901",
+      "10006A9E91",
+      "1000700901",
+      "1300800001",
+      "1111111111",
+    ],
+  },
+  {
+    name: "Level 1",
+    map: [
+      "11111111111111111",
+      "13060000000000181",
+      "11111110100100171",
+      "18400816100040641",
+      "10400100111111111",
+      "10000600100010771",
+      "10000100600060401",
+      "10000600111611111",
+      "10400100100044021",
+      "11111111111111111",
+    ],
+  },
 ];
+
+const TILE = {
+  EMPTY: 0,
+  WALL: 1,
+  EXIT: 2,
+  SPAWN: 3,
+  ENEMY: 4,
+  BOOST: 5,
+  DOOR: 6,
+  MEDKIT: 7,
+  KEY: 8,
+  LADDER: 9,
+  STAIRS_N_UP: 10,
+  STAIRS_E_UP: 11,
+  STAIRS_S_UP: 12,
+  STAIRS_W_UP: 13,
+  PLATFORM: 14,
+};
+
+const TILE_CHAR_TO_ID = {
+  "0": TILE.EMPTY,
+  "1": TILE.WALL,
+  "2": TILE.EXIT,
+  "3": TILE.SPAWN,
+  "4": TILE.ENEMY,
+  "5": TILE.BOOST,
+  "6": TILE.DOOR,
+  "7": TILE.MEDKIT,
+  "8": TILE.KEY,
+  "9": TILE.LADDER,
+  A: TILE.STAIRS_N_UP,
+  B: TILE.STAIRS_E_UP,
+  C: TILE.STAIRS_S_UP,
+  D: TILE.STAIRS_W_UP,
+  E: TILE.PLATFORM,
+};
+
+function parseTileChar(ch, levelIdx, x, y) {
+  const id = TILE_CHAR_TO_ID[ch];
+  if (id === undefined) {
+    throw new Error(`Level ${levelIdx + 1} contains invalid tile '${ch}' at (${x}, ${y}).`);
+  }
+  return id;
+}
+
+function tileCharIsValid(ch) {
+  return TILE_CHAR_TO_ID[ch] !== undefined;
+}
+
+function isStairTile(tile) {
+  return (
+    tile === TILE.STAIRS_N_UP ||
+    tile === TILE.STAIRS_E_UP ||
+    tile === TILE.STAIRS_S_UP ||
+    tile === TILE.STAIRS_W_UP
+  );
+}
+
+function getStairHeight(tile, localX, localY) {
+  if (tile === TILE.STAIRS_N_UP) return 1 - localY;
+  if (tile === TILE.STAIRS_E_UP) return localX;
+  if (tile === TILE.STAIRS_S_UP) return localY;
+  if (tile === TILE.STAIRS_W_UP) return 1 - localX;
+  return null;
+}
+
+function clampZ(z) {
+  return Math.max(MIN_PLAYER_Z, Math.min(MAX_PLAYER_Z, z));
+}
+
+function hasHandcraftedMap(level) {
+  return Array.isArray(level.map) && level.map.length > 0;
+}
+
+function normalizeHandcraftedMap(level, levelIdx) {
+  const rows = level.map.map((row) => String(row));
+  const width = rows[0]?.length ?? 0;
+  if (!width) {
+    throw new Error(`Level ${levelIdx + 1} has an empty map.`);
+  }
+
+  let spawnCount = 0;
+  let exitCount = 0;
+  for (let y = 0; y < rows.length; y += 1) {
+    const row = rows[y];
+    if (row.length !== width) {
+      throw new Error(`Level ${levelIdx + 1} has inconsistent row widths.`);
+    }
+    for (let x = 0; x < row.length; x += 1) {
+      const ch = row[x];
+      if (!tileCharIsValid(ch)) {
+        throw new Error(
+          `Level ${levelIdx + 1} contains invalid tile '${ch}' at (${x}, ${y}). Valid tiles: 0-9, A-E.`
+        );
+      }
+      if (ch === "3") spawnCount += 1;
+      if (ch === "2") exitCount += 1;
+    }
+  }
+
+  if (spawnCount === 0) {
+    throw new Error(`Level ${levelIdx + 1} must include at least one spawn tile (3).`);
+  }
+  if (exitCount === 0) {
+    throw new Error(`Level ${levelIdx + 1} must include at least one exit tile (2).`);
+  }
+
+  return rows;
+}
 
 const keys = {};
 let mouseLocked = false;
@@ -207,6 +344,8 @@ function makePlayer(x, y) {
     recoil: 0,
     bob: 0,
     bobT: 0,
+    z: 0,
+    vz: 0,
   };
 }
 
@@ -216,7 +355,7 @@ function pushMessage(text, duration = 2.2) {
 
 function parseLevel(levelIdx) {
   const level = LEVELS[levelIdx];
-  state.map = level.map.map((row) => row.split("").map((n) => Number(n)));
+  state.map = level.map.map((row, y) => row.split("").map((ch, x) => parseTileChar(ch, levelIdx, x, y)));
   state.mapH = state.map.length;
   state.mapW = state.map[0].length;
   state.levelName = level.name;
@@ -231,10 +370,10 @@ function parseLevel(levelIdx) {
   for (let y = 0; y < state.mapH; y += 1) {
     for (let x = 0; x < state.mapW; x += 1) {
       const tile = state.map[y][x];
-      if (tile === 3) {
+      if (tile === TILE.SPAWN) {
         start = { x: x + 0.5, y: y + 0.5 };
         state.map[y][x] = 0;
-      } else if (tile === 4) {
+      } else if (tile === TILE.ENEMY) {
         const spawnX = x + 0.5;
         const spawnY = y + 0.5;
         const patrolRoute = makePatrolRoute(spawnX, spawnY);
@@ -254,7 +393,7 @@ function parseLevel(levelIdx) {
           patrolStuckTimer: 0,
         });
         state.map[y][x] = 0;
-      } else if (tile === 6) {
+      } else if (tile === TILE.DOOR) {
         // Check if a paired door tile already exists (right or down neighbor already registered).
         const partnerRight = state.doors.get(doorKey(x - 1, y));
         const partnerDown  = state.doors.get(doorKey(x, y - 1));
@@ -265,7 +404,7 @@ function parseLevel(levelIdx) {
         } else {
           const rightTile = state.map[y]?.[x + 1];
           const downTile  = state.map[y + 1]?.[x];
-          const orientation = (rightTile === 6) ? "ns" : (downTile === 6) ? "ew" : "ns";
+          const orientation = (rightTile === TILE.DOOR) ? "ns" : (downTile === TILE.DOOR) ? "ew" : "ns";
           state.doors.set(doorKey(x, y), {
             x,
             y,
@@ -289,6 +428,8 @@ function parseLevel(levelIdx) {
     state.player.dashTime = 0;
     state.player.moveMomentum = 0;
     state.player.hasKey = false;
+    state.player.z = 0;
+    state.player.vz = 0;
   }
 
   pushMessage(`Loaded ${level.name}`);
@@ -512,26 +653,57 @@ function updatePlayer(dt) {
   if (canMoveTo(stepX, p.y, PLAYER_RADIUS)) p.x = stepX;
   if (canMoveTo(p.x, stepY, PLAYER_RADIUS)) p.y = stepY;
 
-  const tile = state.map[Math.floor(p.y)]?.[Math.floor(p.x)];
-  if (tile === 8) {
+  const gx = Math.floor(p.x);
+  const gy = Math.floor(p.y);
+  const tile = state.map[gy]?.[gx];
+  const localX = p.x - gx;
+  const localY = p.y - gy;
+
+  const onLadder = tile === TILE.LADDER;
+  let climbInput = 0;
+  if (keys.KeyR) climbInput += 1;
+  if (keys.KeyQ) climbInput -= 1;
+
+  if (onLadder && climbInput !== 0) {
+    p.vz = climbInput * 2.1;
+  } else {
+    let targetZ = 0;
+    if (tile === TILE.PLATFORM) {
+      targetZ = 1;
+    } else if (isStairTile(tile)) {
+      targetZ = getStairHeight(tile, localX, localY);
+    }
+
+    const dz = targetZ - p.z;
+    p.vz += dz * 12 * dt;
+    p.vz *= 0.84;
+    if (Math.abs(dz) < 0.01 && Math.abs(p.vz) < 0.02) {
+      p.z = targetZ;
+      p.vz = 0;
+    }
+  }
+
+  p.z = clampZ(p.z + p.vz * dt);
+
+  if (tile === TILE.KEY) {
     p.hasKey = true;
-    state.map[Math.floor(p.y)][Math.floor(p.x)] = 0;
+    state.map[gy][gx] = 0;
     pushMessage("Key acquired. Exit unlocked.", 1.5);
   }
 
-  if (tile === 5) {
+  if (tile === TILE.BOOST) {
     p.speedBuff = Math.max(p.speedBuff, 2.2);
-    state.map[Math.floor(p.y)][Math.floor(p.x)] = 0;
+    state.map[gy][gx] = 0;
     pushMessage("Overdrive pad! Movement boosted.", 1.8);
   }
 
-  if (tile === 7) {
+  if (tile === TILE.MEDKIT) {
     if (p.health < 100) {
       const healFraction = 0.25 + Math.random() * 0.25;
       const healAmount = Math.round(100 * healFraction);
       const before = p.health;
       p.health = Math.min(100, p.health + healAmount);
-      state.map[Math.floor(p.y)][Math.floor(p.x)] = 0;
+      state.map[gy][gx] = 0;
       pushMessage(`Medkit +${Math.ceil(p.health - before)} HP`, 1.6);
     }
   }
@@ -957,7 +1129,8 @@ function castRay(rayAngle) {
 
 function render3D() {
   const p = state.player;
-  const horizon = H / 2 + p.bob * 100;
+  const cameraZOffset = p.z * 110;
+  const horizon = H / 2 + p.bob * 100 + cameraZOffset;
   const horizonY = Math.max(0, Math.floor(horizon));
 
   const sky = ctx.createLinearGradient(0, 0, 0, horizon);
@@ -1043,6 +1216,7 @@ function render3D() {
 
 function renderSprites(zBuffer) {
   const p = state.player;
+  const cameraZOffset = p.z * 110;
   const sprites = [];
 
   for (const e of state.enemies) {
@@ -1096,7 +1270,7 @@ function renderSprites(zBuffer) {
   for (const s of sprites) {
     const screenX = (0.5 + s.rel / FOV) * W;
     const size = Math.max(4, (H / s.dist) * (s.kind.includes("bullet") ? 0.11 : s.kind === "corpse" ? 0.36 : s.kind === "key" ? 0.3 : 0.5));
-    const y = H / 2 - size / 2 + p.bob * 100;
+    const y = H / 2 - size / 2 + p.bob * 100 + cameraZOffset;
 
     const leftCol = Math.floor((screenX - size / 2) / RENDER_STRIP);
     const rightCol = Math.floor((screenX + size / 2) / RENDER_STRIP);
@@ -1215,6 +1389,7 @@ function renderHud(targetCtx = ctx) {
 
   const cd = Math.max(0, p.dashCooldown);
   targetCtx.fillText(`Dash: ${cd <= 0 ? "Ready" : cd.toFixed(1) + "s"}`, 20, 121);
+  targetCtx.fillText(`Z: ${p.z.toFixed(2)}`, 135, 121);
 
   // Additional always-visible status display.
   targetCtx.fillStyle = "rgba(2, 6, 23, 0.65)";
@@ -1248,6 +1423,9 @@ function renderMinimap(targetCtx = ctx) {
       if (t === 1) targetCtx.fillStyle = "#475569";
       else if (t === 2) targetCtx.fillStyle = "#22c55e";
       else if (t === 8) targetCtx.fillStyle = "#fde047";
+      else if (t === TILE.LADDER) targetCtx.fillStyle = "#38bdf8";
+      else if (t === TILE.PLATFORM) targetCtx.fillStyle = "#818cf8";
+      else if (isStairTile(t)) targetCtx.fillStyle = "#c084fc";
       else if (t === 6) {
         const door = getDoorAt(x, y);
         targetCtx.fillStyle = door && door.open > 0.85 ? "#b45309" : "#facc15";
@@ -1735,6 +1913,10 @@ function generateMaze(cols, rows, seed) {
 // Add a few speed booster tiles to each level after parsing.
 for (let levelIdx = 0; levelIdx < LEVELS.length; levelIdx += 1) {
   const level = LEVELS[levelIdx];
+  if (hasHandcraftedMap(level)) {
+    level.map = normalizeHandcraftedMap(level, levelIdx);
+    continue;
+  }
   const mutableRows = generateMaze(MAZE_COLS, MAZE_ROWS, levelIdx * 997 + 1337);
   const placedRooms = [];
 
